@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import smtplib
 import threading
-import time
 from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
@@ -11,7 +10,7 @@ from pathlib import Path
 import qrcode
 
 from labcheckin.booking import BookingClient, BookingUnavailable
-from labcheckin.config import Config, current_base_url, page_url
+from labcheckin.config import Config, page_url
 from labcheckin.db import Store
 
 log = logging.getLogger("labcheckin.agent")
@@ -112,11 +111,10 @@ class Agent:
         self._thread: threading.Thread | None = None
         self._qr_url = ""
         self.booking = BookingClient(cfg)
-        self._reported_url = ""
-        self._next_report_at = 0.0
+        self._handled: set[str] = set()
+        self._pending_folders: dict[str, Path] = {}
 
     def start(self) -> None:
-        self.refresh_qr()
         self._thread = threading.Thread(target=self._loop, name="lab-agent", daemon=True)
         self._thread.start()
 
@@ -132,40 +130,83 @@ class Agent:
             write_qr(url, self.cfg.db_path.parent / "qr.png")
             self._qr_url = url
             log.info("QR -> %s saved %s", url, self.cfg.qr_path)
-        self._maybe_report_presence()
         return url
-
-    def _maybe_report_presence(self) -> None:
-        if not self.booking.enabled or not self.cfg.instrument_id:
-            return
-        url = current_base_url(self.cfg)
-        if not url.startswith(("http://", "https://")):
-            return
-        host = url.split("://", 1)[1].split("/", 1)[0].lower()
-        if host.startswith("127.0.0.1") or host.startswith("localhost"):
-            return
-        now = time.time()
-        changed = url != self._reported_url
-        if not changed and now < self._next_report_at:
-            return
-        try:
-            self.booking.report_presence(url)
-        except BookingUnavailable:
-            self._next_report_at = now + 15
-            log.warning("登记扫码地址失败，15 秒后重试")
-            return
-        self._reported_url = url
-        self._next_report_at = now + 180
-        log.info("已向预约系统登记 %s -> %s", self.cfg.instrument_id, url)
 
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:
-                self.refresh_qr()
+                self._sync_desk()
                 self._process_one()
             except Exception:
                 log.exception("agent loop failed")
-            self._stop.wait(1.0)
+            self._stop.wait(5.0)
+
+    def _sync_desk(self) -> None:
+        if not self.booking.enabled or not self.cfg.instrument_id:
+            return
+        try:
+            payload = self.booking.desk()
+        except BookingUnavailable:
+            log.warning("读取仪器状态失败，稍后重试")
+            return
+        phase = payload.get("phase")
+        booking = payload.get("booking") or {}
+        booking_id = str(booking.get("id") or "")
+        if not booking_id or booking_id in self._handled:
+            return
+        if phase == "checked-in" and not booking.get("folderPath"):
+            self._ensure_folder(booking)
+        elif phase == "need-send":
+            self._send_booking(booking)
+
+    def _ensure_folder(self, booking: dict) -> None:
+        booking_id = str(booking["id"])
+        folder = self._pending_folders.get(booking_id)
+        if folder is None:
+            raw = str(booking.get("checkInAt") or "")
+            try:
+                when = datetime.fromisoformat(raw)
+            except ValueError:
+                when = datetime.now().astimezone()
+            folder = make_session_folder(self.cfg.data_root, str(booking.get("applicant") or "user"), when)
+            self._pending_folders[booking_id] = folder
+        try:
+            self.booking.report_desk(booking_id, folder_path=str(folder))
+        except BookingUnavailable:
+            log.warning("回报实验文件夹失败，稍后重试")
+            return
+        self._pending_folders.pop(booking_id, None)
+        log.info("已建立实验文件夹 %s", folder)
+
+    def _send_booking(self, booking: dict) -> None:
+        booking_id = str(booking["id"])
+        email = str(booking.get("email") or "").strip()
+        self._handled.add(booking_id)
+        if not email:
+            try:
+                self.booking.report_desk(booking_id, send_status="skipped", send_error="没有填写邮箱")
+            except BookingUnavailable:
+                self._handled.discard(booking_id)
+            return
+        session = {
+            "folder_path": booking.get("folderPath") or "",
+            "username": booking.get("applicant") or "",
+            "check_in_at": booking.get("checkInAt") or "",
+            "check_out_at": booking.get("checkOutAt") or "",
+            "email": email,
+        }
+        try:
+            files = collect_files(Path(session["folder_path"])) if session["folder_path"] else []
+            deliver(self.cfg, session, files)
+            status, error = "sent", ""
+        except SendError as exc:
+            status, error = "failed", str(exc)
+            log.warning("发送失败: %s", exc)
+        try:
+            self.booking.report_desk(booking_id, send_status=status, send_error=error)
+        except BookingUnavailable:
+            self._handled.discard(booking_id)
+            log.warning("回报发送结果失败，稍后重试")
 
     def _process_one(self) -> None:
         job = self.store.claim_job()

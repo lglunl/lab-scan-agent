@@ -72,3 +72,28 @@ class BookingClient:
             f"/api/instruments/{quote(self.cfg.instrument_id)}/presence",
             body={"publicUrl": public_url},
         )
+
+    def desk(self) -> dict:
+        if not self.cfg.instrument_id:
+            raise BookingUnavailable("未配置本机对应的仪器")
+        return self._request(f"/api/instruments/{quote(self.cfg.instrument_id)}/desk")
+
+    def report_desk(
+        self,
+        booking_id: str,
+        folder_path: str = "",
+        send_status: str = "",
+        send_error: str = "",
+    ) -> None:
+        if not self.cfg.instrument_id:
+            raise BookingUnavailable("未配置本机对应的仪器")
+        body: dict[str, str] = {"bookingId": booking_id}
+        if folder_path:
+            body["folderPath"] = folder_path
+        if send_status:
+            body["sendStatus"] = send_status
+            body["sendError"] = send_error
+        self._request(
+            f"/api/instruments/{quote(self.cfg.instrument_id)}/desk",
+            body=body,
+        )
