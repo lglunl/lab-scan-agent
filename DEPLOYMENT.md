@@ -112,7 +112,10 @@ python -m labcheckin
 启动后：
 
 - 本机浏览器打开 `http://127.0.0.1:8787` 能进登录页；
-- 程序会自动开一条 quick tunnel，把本机服务暴露成公网二维码地址，写到 `data/public_base_url.txt`（用户手机扫码访问用的）。
+- 程序会自动开一条 quick tunnel，把本机服务暴露成公网地址，写到 `data/public_base_url.txt`；
+- 公网地址一旦出现或发生变化，程序自动向预约系统登记：`POST /api/instruments/{instrument_id}/presence`，正文是当前地址，请求头带密钥。登记失败会每 15 秒重试，成功后每 3 分钟续报一次。
+
+用户手机扫的不是这台电脑自己生成的码，而是预约系统管理后台下载的仪器二维码。手机先打开预约系统，预约系统再跳到这里刚登记的地址。
 
 ---
 
@@ -131,7 +134,8 @@ python -m labcheckin
 | 登录提示「预约服务暂时不可用」 | `booking_api_base` 填错，或服务器没开 / 隧道失效 | 检查网址、确认服务器 cloudflared 在跑 |
 | 接口返回 401 | 密钥不对或没设 | 确认 `$env:LAB_API_TOKEN` 与服务器 `.env` 的 `LAB_API_TOKEN` 一致 |
 | 上机提示「没有有效预约」 | 用户没预约，或 `instrument_id` 填错 | 核对 `instrument_id` 是否等于服务器的仪器 ID |
-| 二维码点开提示「设备不匹配」 | 扫码 URL 里的 `device` 与 `device_id` 不一致 | 用本机 `data/public_base_url.txt` 里的二维码 |
+| 二维码点开提示「仪器不匹配」 | 码上的仪器 ID 和本机 `instrument_id` 不一致 | 核对 `config.json` 里的 `instrument_id` |
+| 预约系统提示「设备未上线」 | 这台电脑还没登记成功 | 确认密钥、`booking_api_base`、`instrument_id`，并看启动日志里有没有「已向预约系统登记」 |
 
 ---
 

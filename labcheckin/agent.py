@@ -3,13 +3,15 @@ from __future__ import annotations
 import logging
 import smtplib
 import threading
+import time
 from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
 
 import qrcode
 
-from labcheckin.config import Config, page_url
+from labcheckin.booking import BookingClient, BookingUnavailable
+from labcheckin.config import Config, current_base_url, page_url
 from labcheckin.db import Store
 
 log = logging.getLogger("labcheckin.agent")
@@ -109,6 +111,9 @@ class Agent:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._qr_url = ""
+        self.booking = BookingClient(cfg)
+        self._reported_url = ""
+        self._next_report_at = 0.0
 
     def start(self) -> None:
         self.refresh_qr()
@@ -127,7 +132,31 @@ class Agent:
             write_qr(url, self.cfg.db_path.parent / "qr.png")
             self._qr_url = url
             log.info("QR -> %s saved %s", url, self.cfg.qr_path)
+        self._maybe_report_presence()
         return url
+
+    def _maybe_report_presence(self) -> None:
+        if not self.booking.enabled or not self.cfg.instrument_id:
+            return
+        url = current_base_url(self.cfg)
+        if not url.startswith(("http://", "https://")):
+            return
+        host = url.split("://", 1)[1].split("/", 1)[0].lower()
+        if host.startswith("127.0.0.1") or host.startswith("localhost"):
+            return
+        now = time.time()
+        changed = url != self._reported_url
+        if not changed and now < self._next_report_at:
+            return
+        try:
+            self.booking.report_presence(url)
+        except BookingUnavailable:
+            self._next_report_at = now + 15
+            log.warning("登记扫码地址失败，15 秒后重试")
+            return
+        self._reported_url = url
+        self._next_report_at = now + 180
+        log.info("已向预约系统登记 %s -> %s", self.cfg.instrument_id, url)
 
     def _loop(self) -> None:
         while not self._stop.is_set():

@@ -4,7 +4,7 @@ import json
 import logging
 from datetime import datetime
 from urllib.error import URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from labcheckin.config import Config
@@ -63,4 +63,12 @@ class BookingClient:
         self._request(
             f"/api/bookings/{booking_id}/scan",
             body={"action": action, "at": when.isoformat(timespec="seconds")},
+        )
+
+    def report_presence(self, public_url: str) -> None:
+        if not self.cfg.instrument_id:
+            raise BookingUnavailable("未配置本机对应的仪器")
+        self._request(
+            f"/api/instruments/{quote(self.cfg.instrument_id)}/presence",
+            body={"publicUrl": public_url},
         )

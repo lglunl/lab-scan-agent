@@ -97,6 +97,13 @@ def device_matches(request: Request) -> bool:
     return given is None or given == "" or given == cfg.device_id
 
 
+def instrument_matches(request: Request) -> bool:
+    given = request.query_params.get("instrument")
+    if given is None or given == "":
+        return True
+    return given == cfg.instrument_id
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -130,6 +137,13 @@ def home(request: Request):
             request,
             "message.html",
             {"title": "设备不匹配", "message": "这个二维码不属于本机这台演示设备。"},
+            status_code=404,
+        )
+    if not instrument_matches(request):
+        return render(
+            request,
+            "message.html",
+            {"title": "仪器不匹配", "message": "这个二维码对应的仪器不是本机正在管理的仪器。"},
             status_code=404,
         )
     active = store.active_session(cfg.device_id)
