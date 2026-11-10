@@ -127,9 +127,24 @@ def qr_image():
     return FileResponse(path, media_type="image/png")
 
 
-# 流程：第一次扫码登录并上机，上机后停在「已上机」；再次打开二维码才进入下机。
-# 临时：登录不校验密码和预约人；下机暂不要求邮箱和文件。
-# 后续改回：下机必须是本次上机的同一个人，填写有效邮箱，且文件夹里至少有一个文件、合计不超过 20MB。
+# 流程：打开设备页先登录，再按这台仪器的当前预约决定能不能点「上机」。
+# 下机暂不要求邮箱和文件。
+def checkin_gate(username: str) -> dict:
+    if not (cfg.require_booking and booking.enabled):
+        return {"can_check_in": True, "booking": None, "block_reason": ""}
+    try:
+        reservation = booking.active_booking(username, datetime.now().astimezone())
+    except BookingUnavailable as exc:
+        return {"can_check_in": False, "booking": None, "block_reason": str(exc)}
+    if reservation is None:
+        return {
+            "can_check_in": False,
+            "booking": None,
+            "block_reason": "当前时间没有这台仪器的有效预约，不能上机。",
+        }
+    return {"can_check_in": True, "booking": reservation, "block_reason": ""}
+
+
 @app.get("/")
 def home(request: Request):
     if not device_matches(request):
@@ -164,7 +179,7 @@ def home(request: Request):
     return render(
         request,
         "checkin.html",
-        {"title": "上机", "username": username, "error": "", "notice": notice},
+        {"title": "上机", "username": username, "error": "", "notice": notice, **checkin_gate(username)},
     )
 
 
@@ -246,19 +261,24 @@ def check_in(request: Request):
         )
     if active is not None:
         return redirect("/checked-in")
-    reservation = None
-    if cfg.require_booking and booking.enabled:
-        try:
-            reservation = booking.active_booking(username, when)
-        except BookingUnavailable as exc:
-            return render(request, "message.html", {"title": "暂时无法上机", "message": str(exc)}, status_code=503)
-        if reservation is None:
-            return render(
-                request,
-                "message.html",
-                {"title": "没有有效预约", "message": f"{username} 在当前时间没有这台仪器的有效预约，请先在预约系统预约后再上机。"},
-                status_code=403,
-            )
+    gate = checkin_gate(username)
+    reservation = gate["booking"]
+    if not gate["can_check_in"]:
+        latest = store.latest_for_user(cfg.device_id, username)
+        notice = None
+        if latest is not None and latest["send_status"] in {"pending", "sending", "failed", "sent"}:
+            notice = {
+                "id": latest["id"],
+                "status": latest["send_status"],
+                "error": latest["send_error"] or "",
+                "email": latest["email"] or "",
+            }
+        return render(
+            request,
+            "checkin.html",
+            {"title": "上机", "username": username, "error": "", "notice": notice, **gate},
+            status_code=403,
+        )
     folder = make_session_folder(cfg.data_root, username, when)
     try:
         store.check_in(cfg.device_id, username, str(folder), when, reservation["id"] if reservation else None)

@@ -30,9 +30,21 @@
 
 | 要拿的东西 | 说明 | 在哪看 |
 |---|---|---|
-| ① 服务器公网网址 | `https://xxx.trycloudflare.com` | 预约服务器上跑 cloudflared 时输出的网址 |
+| ① 服务器公网网址 | `https://xxx.trycloudflare.com` | 预约服务器 `.env` 的 `PUBLIC_BASE_URL`，要和 cloudflared 当前输出的网址一致 |
 | ② 密钥 `LAB_API_TOKEN` | 所有设备共用的同一个密钥 | 预约服务器的 `.env` 里的 `LAB_API_TOKEN` |
 | ③ 仪器 ID `instrument_id` | 这台电脑对应哪台仪器 | 见下 |
+
+公网网址要在**两边填同一个值**，末尾都不要加 `/`：
+
+1. 预约服务器 `D:\cursor_home\labpilot\.env`：
+
+```
+PUBLIC_BASE_URL=https://xxx.trycloudflare.com
+```
+
+改完重启预约服务（`node --env-file-if-exists=.env server/index.js`）。管理后台下载的仪器二维码用的就是这个地址。quick tunnel 一重启地址就变，要改这一行、重启服务，再重新下载二维码。怎么读当前地址、怎么自测，见预约服务器的 `docs/DEPLOYMENT.md` 第一节第 2、3 步。
+
+2. 本机 `config.json` 的 `booking_api_base` 填同一个地址。密钥不要写进这个文件。
 
 **仪器 ID 在哪查**（两种方式）：
 
