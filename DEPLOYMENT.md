@@ -114,12 +114,11 @@ setx LAB_API_TOKEN "你的密钥"
 
 ## 启动
 
-```powershell
-cd 扫码agent目录
-pip install -r requirements.txt        # 首次部署
-$env:LAB_API_TOKEN = "你的密钥"
-python -m labcheckin
-```
+新设备电脑不用安装 Python。把整个扫码程序文件夹拷过去，配好 `config.json` 之后，双击 `start.cmd`。
+
+第一次会自动下载一套便携 Python 并安装依赖，需要能上网。之后再双击就是直接启动。窗口不要关，关掉扫码程序就停了。
+
+本机已有 Python 时，也可以在这个目录执行 `python -m labcheckin`。
 
 启动后：
 
