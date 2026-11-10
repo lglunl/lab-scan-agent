@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -71,7 +72,8 @@ def load_config() -> Config:
         db_path=DATA_DIR / "lab.sqlite",
         secret_path=DATA_DIR / "session.secret",
         booking_api_base=str(raw.get("booking_api_base") or "").strip().rstrip("/"),
-        booking_api_token=str(raw.get("booking_api_token") or "").strip(),
+        # 密钥优先取环境变量 LAB_API_TOKEN，避免真实密钥写进 config.json 被提交到 git。
+        booking_api_token=os.environ.get("LAB_API_TOKEN") or str(raw.get("booking_api_token") or "").strip(),
         instrument_id=str(raw.get("instrument_id") or "").strip(),
         require_booking=bool(raw.get("require_booking", False)),
     )
