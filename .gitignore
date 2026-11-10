@@ -1,0 +1,10 @@
+# 运行时数据与密钥（数据库、session 密钥、二维码、隧道二进制、公网地址）
+data/
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 虚拟环境
+.venv/
+venv/

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block body %}
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<form method="post" action="/login">
+  <label for="username">用户名</label>
+  <input id="username" name="username" autocomplete="username" required>
+  <label for="password">密码</label>
+  <input id="password" name="password" type="password" autocomplete="current-password">
+  <button type="submit">登录</button>
+</form>
+<p class="note">当前演示提交即可登录。用户名会用在本次数据文件夹的名称里。</p>
+{% endblock %}

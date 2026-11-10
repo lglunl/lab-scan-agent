@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block body %}
+<p class="ok">下机已完成。</p>
+<p class="note">收件邮箱 {{ email or "未填写" }}</p>
+<p class="path">{{ folder }}</p>
+{% if status == "sent" %}
+<p class="ok">已发送。</p>
+{% elif status == "failed" %}
+<p class="error">{{ error }}</p>
+<form method="post" action="/session/{{ session_id }}/retry">
+  <button type="submit">重试发送</button>
+</form>
+{% else %}
+<p>正在发送，页面会自动刷新。</p>
+{% endif %}
+<p><a class="text-link" href="/">返回</a></p>
+{% endblock %}

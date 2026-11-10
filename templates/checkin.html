@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block body %}
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<p class="note">当前用户 <strong>{{ username }}</strong>。确认后会在桌面 Experiment Data 中建立本次文件夹。</p>
+{% if notice %}
+<section class="card">
+  <p class="note">上一次发送：{{ notice.email }}</p>
+  {% if notice.status == "sent" %}<p>已发送。</p>{% endif %}
+  {% if notice.status == "failed" %}<p class="error">{{ notice.error }}</p>{% endif %}
+  {% if notice.status in ["pending", "sending"] %}<p>正在发送。</p>{% endif %}
+  <a class="text-link" href="/session/{{ notice.id }}">查看这次发送</a>
+</section>
+{% endif %}
+<form method="post" action="/check-in">
+  <button type="submit">开始上机</button>
+</form>
+<form method="post" action="/logout">
+  <button class="ghost" type="submit">退出登录</button>
+</form>
+{% endblock %}

@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block body %}
+<p class="ok">已上机</p>
+<p class="note">当前用户 <strong>{{ username }}</strong>，开始于 {{ checked_in }}。数据请放到下面的文件夹。再次扫描桌面上的二维码后，才会进入下机。</p>
+<p class="path">{{ folder }}</p>
+{% endblock %}

@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} · {{ device_name }}</title>
+  {% if refresh %}<meta http-equiv="refresh" content="2">{% endif %}
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main>
+    <p class="device">{{ device_name }} · {{ device_id }}</p>
+    <h1>{{ title }}</h1>
+    {% block body %}{% endblock %}
+  </main>
+</body>
+</html>

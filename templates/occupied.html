@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block body %}
+<p class="note">这台设备正在由 <strong>{{ holder }}</strong> 使用，开始于 {{ started }}。本次上机结束前，其他人不能开始新的上机。</p>
+<form method="post" action="/logout">
+  <button class="ghost" type="submit">退出登录</button>
+</form>
+{% endblock %}

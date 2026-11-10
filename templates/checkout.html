@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block body %}
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<p class="note">当前可以直接下机。邮箱可以先不填，文件夹里没有文件也能提交。</p>
+<p class="path" id="drop-path">{{ folder }}</p>
+<section class="card">
+  <h2>当前文件</h2>
+  {% if files %}
+  <ul>
+    {% for file in files %}
+    <li>{{ file.name }} <span>{{ file.size }}</span></li>
+    {% endfor %}
+  </ul>
+  <p class="note">合计 {{ total }}{% if oversize %}，已超过 20MB{% endif %}</p>
+  {% else %}
+  <p class="note">这个文件夹里还没有文件。</p>
+  {% endif %}
+  <p><a class="text-link" href="/">刷新文件列表</a></p>
+</section>
+<form method="post" action="/check-out">
+  <label for="email">数据接收邮箱</label>
+  <input id="email" name="email" type="email" autocomplete="email" placeholder="可以稍后再填">
+  <button type="submit">提交下机并发送</button>
+</form>
+<form method="post" action="/logout">
+  <button class="ghost" type="submit">退出登录</button>
+</form>
+{% endblock %}
