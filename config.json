@@ -13,7 +13,7 @@
   "smtp_from": "",
   "smtp_tls": true,
   "max_attachment_bytes": 20971520,
-  "booking_api_base": "http://127.0.0.1:8080",
+  "booking_api_base": "https://fans-guitar-alphabetical-language.trycloudflare.com",
   "booking_api_token": "",
   "instrument_id": "inst_fc",
   "require_booking": true

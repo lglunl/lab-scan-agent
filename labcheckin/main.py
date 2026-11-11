@@ -19,8 +19,6 @@ from labcheckin.agent import Agent, collect_files, make_session_folder, total_by
 from labcheckin.booking import BookingClient, BookingUnavailable
 from labcheckin.config import ROOT, load_config
 from labcheckin.db import Occupied, Store
-from labcheckin.tunnel import QuickTunnel
-
 log = logging.getLogger("labcheckin")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 ILLEGAL = set('\\/:*?"<>|')
@@ -29,7 +27,6 @@ cfg = load_config()
 store = Store(cfg.db_path)
 agent = Agent(cfg, store)
 booking = BookingClient(cfg)
-tunnel = QuickTunnel(cfg.port)
 templates = Jinja2Templates(directory=str(ROOT / "templates"))
 
 
@@ -97,14 +94,19 @@ def device_matches(request: Request) -> bool:
     return given is None or given == "" or given == cfg.device_id
 
 
+def instrument_matches(request: Request) -> bool:
+    given = request.query_params.get("instrument")
+    if given is None or given == "":
+        return True
+    return given == cfg.instrument_id
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     agent.start()
-    tunnel.start()
-    log.info("open %s", agent.refresh_qr())
+    log.info("watching instrument %s via %s", cfg.instrument_id or "(none)", cfg.booking_api_base or "(none)")
     yield
-    tunnel.stop()
     agent.stop()
 
 
@@ -120,38 +122,38 @@ def qr_image():
     return FileResponse(path, media_type="image/png")
 
 
-# 流程：第一次扫码登录并上机，上机后停在「已上机」；再次打开二维码才进入下机。
-# 临时：登录不校验密码和预约人；下机暂不要求邮箱和文件。
-# 后续改回：下机必须是本次上机的同一个人，填写有效邮箱，且文件夹里至少有一个文件、合计不超过 20MB。
-@app.get("/")
-def home(request: Request):
-    if not device_matches(request):
-        return render(
-            request,
-            "message.html",
-            {"title": "设备不匹配", "message": "这个二维码不属于本机这台演示设备。"},
-            status_code=404,
-        )
-    active = store.active_session(cfg.device_id)
-    if active is not None:
-        return render(request, "checkout.html", checkout_context(active))
-    username = username_of(request)
-    if not username:
-        return render(request, "login.html", {"title": "登录", "error": ""})
-    latest = store.latest_for_user(cfg.device_id, username)
-    notice = None
-    if latest is not None and latest["send_status"] in {"pending", "sending", "failed", "sent"}:
-        notice = {
-            "id": latest["id"],
-            "status": latest["send_status"],
-            "error": latest["send_error"] or "",
-            "email": latest["email"] or "",
+# 流程：打开设备页先登录，再按这台仪器的当前预约决定能不能点「上机」。
+# 下机暂不要求邮箱和文件。
+def checkin_gate(username: str) -> dict:
+    if not (cfg.require_booking and booking.enabled):
+        return {"can_check_in": True, "booking": None, "block_reason": ""}
+    try:
+        reservation = booking.active_booking(username, datetime.now().astimezone())
+    except BookingUnavailable as exc:
+        return {"can_check_in": False, "booking": None, "block_reason": str(exc)}
+    if reservation is None:
+        return {
+            "can_check_in": False,
+            "booking": None,
+            "block_reason": "当前时间没有这台仪器的有效预约，不能上机。",
         }
+    return {"can_check_in": True, "booking": reservation, "block_reason": ""}
+
+
+def device_status(request: Request):
     return render(
         request,
-        "checkin.html",
-        {"title": "上机", "username": username, "error": "", "notice": notice},
+        "message.html",
+        {
+            "title": "仪器电脑已就绪",
+            "message": "上机和下机请用预约系统的仪器二维码。这台电脑负责建立实验文件夹，并在下机后发送数据。",
+        },
     )
+
+
+@app.get("/")
+def home(request: Request):
+    return device_status(request)
 
 
 @app.get("/checked-in")
@@ -189,20 +191,8 @@ def checkout_context(session, error: str = "") -> dict:
 
 
 @app.post("/login")
-def login(request: Request, username: Annotated[str, Form()], password: Annotated[str, Form()] = ""):
-    try:
-        name = clean_username(username)
-    except ValueError as exc:
-        return render(request, "login.html", {"title": "登录", "error": str(exc)}, status_code=400)
-    if booking.enabled:
-        try:
-            result = booking.verify_user(name, password)
-        except BookingUnavailable as exc:
-            return render(request, "login.html", {"title": "登录", "error": str(exc)}, status_code=503)
-        if not result["ok"]:
-            return render(request, "login.html", {"title": "登录", "error": result["message"]}, status_code=403)
-    request.session["username"] = name
-    return redirect(f"/?device={quote(cfg.device_id)}")
+def login(request: Request, username: Annotated[str, Form()] = "", password: Annotated[str, Form()] = ""):
+    return device_status(request)
 
 
 @app.post("/logout")
@@ -213,80 +203,12 @@ def logout(request: Request):
 
 @app.post("/check-in")
 def check_in(request: Request):
-    username = username_of(request)
-    if not username:
-        return redirect("/")
-    when = datetime.now().astimezone()
-    active = store.active_session(cfg.device_id)
-    if active is not None and active["username"] != username:
-        return render(
-            request,
-            "occupied.html",
-            {
-                "title": "设备使用中",
-                "username": username,
-                "holder": active["username"],
-                "started": show_time(active["check_in_at"]),
-            },
-            status_code=409,
-        )
-    if active is not None:
-        return redirect("/checked-in")
-    reservation = None
-    if cfg.require_booking and booking.enabled:
-        try:
-            reservation = booking.active_booking(username, when)
-        except BookingUnavailable as exc:
-            return render(request, "message.html", {"title": "暂时无法上机", "message": str(exc)}, status_code=503)
-        if reservation is None:
-            return render(
-                request,
-                "message.html",
-                {"title": "没有有效预约", "message": f"{username} 在当前时间没有这台仪器的有效预约，请先在预约系统预约后再上机。"},
-                status_code=403,
-            )
-    folder = make_session_folder(cfg.data_root, username, when)
-    try:
-        store.check_in(cfg.device_id, username, str(folder), when, reservation["id"] if reservation else None)
-    except Occupied as exc:
-        try:
-            folder.rmdir()
-        except OSError:
-            pass
-        return render(
-            request,
-            "occupied.html",
-            {
-                "title": "设备使用中",
-                "username": username,
-                "holder": exc.username,
-                "started": show_time(exc.check_in_at),
-            },
-            status_code=409,
-        )
-    if booking.enabled and reservation is not None:
-        try:
-            booking.report_scan(reservation["id"], "check-in", when)
-        except BookingUnavailable:
-            log.warning("上机状态回写预约系统失败：%s", reservation["id"])
-    return redirect("/checked-in")
+    return device_status(request)
 
 
 @app.post("/check-out")
 def check_out(request: Request, email: Annotated[str, Form()] = ""):
-    active = store.active_session(cfg.device_id)
-    if active is None:
-        return redirect(f"/?device={quote(cfg.device_id)}")
-    address = email.strip()
-    request.session["username"] = active["username"]
-    when = datetime.now().astimezone()
-    store.check_out(active["id"], address, when)
-    if booking.enabled and active["booking_id"]:
-        try:
-            booking.report_scan(active["booking_id"], "check-out", when)
-        except BookingUnavailable:
-            log.warning("下机状态回写预约系统失败：%s", active["booking_id"])
-    return redirect(f"/session/{active['id']}")
+    return device_status(request)
 
 
 @app.get("/session/{session_id}")

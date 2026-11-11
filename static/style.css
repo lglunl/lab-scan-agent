@@ -78,6 +78,12 @@ button.ghost {
   margin-top: 0.6rem;
 }
 
+button:disabled {
+  background: #cfc8bb;
+  color: #6d675d;
+  cursor: not-allowed;
+}
+
 .path {
   font-family: Consolas, "Cascadia Mono", monospace;
   background: var(--paper);
