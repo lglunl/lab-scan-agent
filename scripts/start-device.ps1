@@ -15,9 +15,14 @@ function Set-ConfigString([string]$Text, [string]$Name, [string]$Value) {
     $escaped = $Value.Replace('\', '\\').Replace('"', '\"')
     $pattern = '"' + [regex]::Escape($Name) + '"\s*:\s*"(?:\\.|[^"\\])*"'
     $replacement = '"' + $Name + '": "' + $escaped + '"'
-    $updated = [regex]::Replace($Text, $pattern, $replacement, 1)
-    if ($updated -eq $Text) { throw "config.json 里没有 $Name" }
-    return $updated
+    if ([regex]::IsMatch($Text, $pattern)) {
+        return [regex]::Replace($Text, $pattern, $replacement, 1)
+    }
+    $trimmed = $Text.TrimEnd()
+    if ($trimmed -notmatch '\}\s*$') { throw 'config.json 不是合法的 JSON 对象' }
+    $body = [regex]::Replace($trimmed, '\}\s*$', '').TrimEnd()
+    if ($body -notmatch '[,{]\s*$') { $body += ',' }
+    return $body + "`r`n  " + $replacement + "`r`n}`r`n"
 }
 
 function Save-DeviceSetup([string]$ConfigPath) {
