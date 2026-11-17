@@ -4,6 +4,9 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $runtime = Join-Path $root 'runtime'
 
+# start.cmd 入口会提供 SMTP 默认值；mail.env 覆盖默认值，实现跨电脑复用同一邮箱。
+. (Join-Path $PSScriptRoot 'load-mail-env.ps1')
+
 function Get-ConfigString([string]$Text, [string]$Name) {
     $pattern = '"' + [regex]::Escape($Name) + '"\s*:\s*"((?:\\.|[^"\\])*)"'
     $match = [regex]::Match($Text, $pattern)
@@ -41,11 +44,11 @@ function Save-DeviceSetup([string]$ConfigPath) {
     $form.MaximizeBox = $false
     $form.MinimizeBox = $false
     $form.TopMost = $true
-    $form.ClientSize = New-Object System.Drawing.Size(440, 250)
+    $form.ClientSize = New-Object System.Drawing.Size(440, 330)
     $form.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 10)
 
     $hint = New-Object System.Windows.Forms.Label
-    $hint.Text = "填写这台仪器在预约系统里的设备 ID，以及预约系统的密钥。两项都要填，保存后才会启动。"
+    $hint.Text = "填写设备 ID 和密钥。实验软件默认保存目录可以留空；填了之后，上机后会把那里的新文件复制到桌面本次文件夹。"
     $hint.Location = New-Object System.Drawing.Point(20, 16)
     $hint.Size = New-Object System.Drawing.Size(400, 44)
 
@@ -67,13 +70,22 @@ function Save-DeviceSetup([string]$ConfigPath) {
     $tokenBox.Size = New-Object System.Drawing.Size(400, 28)
     $tokenBox.Text = $token
 
+    $sourceLabel = New-Object System.Windows.Forms.Label
+    $sourceLabel.Text = '实验软件默认保存目录（可留空）'
+    $sourceLabel.Location = New-Object System.Drawing.Point(20, 188)
+    $sourceLabel.AutoSize = $true
+    $sourceBox = New-Object System.Windows.Forms.TextBox
+    $sourceBox.Location = New-Object System.Drawing.Point(20, 212)
+    $sourceBox.Size = New-Object System.Drawing.Size(400, 28)
+    $sourceBox.Text = Get-ConfigString $text 'source_data_dir'
+
     $ok = New-Object System.Windows.Forms.Button
     $ok.Text = '保存并启动'
-    $ok.Location = New-Object System.Drawing.Point(210, 200)
+    $ok.Location = New-Object System.Drawing.Point(210, 280)
     $ok.Size = New-Object System.Drawing.Size(100, 30)
     $cancel = New-Object System.Windows.Forms.Button
     $cancel.Text = '取消'
-    $cancel.Location = New-Object System.Drawing.Point(320, 200)
+    $cancel.Location = New-Object System.Drawing.Point(320, 280)
     $cancel.Size = New-Object System.Drawing.Size(100, 30)
     $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
     $ok.Add_Click({
@@ -86,7 +98,7 @@ function Save-DeviceSetup([string]$ConfigPath) {
     }.GetNewClosure())
     $form.AcceptButton = $ok
     $form.CancelButton = $cancel
-    $form.Controls.AddRange(@($hint, $idLabel, $idBox, $tokenLabel, $tokenBox, $ok, $cancel))
+    $form.Controls.AddRange(@($hint, $idLabel, $idBox, $tokenLabel, $tokenBox, $sourceLabel, $sourceBox, $ok, $cancel))
 
     $result = $form.ShowDialog()
     if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
@@ -94,10 +106,11 @@ function Save-DeviceSetup([string]$ConfigPath) {
     }
     $text = Set-ConfigString $text 'instrument_id' $idBox.Text.Trim()
     $text = Set-ConfigString $text 'booking_api_token' $tokenBox.Text.Trim()
+    $text = Set-ConfigString $text 'source_data_dir' $sourceBox.Text.Trim()
     [System.IO.File]::WriteAllText($ConfigPath, $text, $utf8)
     New-Item -ItemType Directory -Force -Path (Split-Path $marker) | Out-Null
     Set-Content -Path $marker -Value (Get-Date -Format o) -Encoding ascii
-    Write-Host '设备 ID 和密钥已写入 config.json'
+    Write-Host '设备 ID、密钥和默认保存目录已写入 config.json'
 }
 
 $configPath = Join-Path $root 'config.json'
@@ -152,6 +165,30 @@ if ($needInstall) {
     & $python -m pip install --disable-pip-version-check -r $requirements
     if ($LASTEXITCODE -ne 0) { throw '安装依赖失败' }
     Set-Content -Path $marker -Value (Get-Date -Format o) -Encoding ascii
+}
+
+# 兼容旧版：如果没有从 mail.env 加载授权码，则尝试读取旧版当前 Windows 用户 DPAPI 文件。
+# 新版本推荐 mail.env，以便同一项目包在不同设备上复用统一邮箱。
+$protectedSmtp = Join-Path $root 'data\.smtp-password.dpapi'
+if (-not $env:LAB_SMTP_PASSWORD -and (Test-Path $protectedSmtp)) {
+    try {
+        $encryptedText = (Get-Content -Raw -Path $protectedSmtp).Trim()
+        $secureString = ConvertTo-SecureString -String $encryptedText
+        $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureString)
+        try {
+            $env:LAB_SMTP_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+        } finally {
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+        }
+    } catch {
+        throw '不能解密旧版邮箱授权码：请在主程序包上重新执行 scripts/configure-mail.ps1 生成 mail.env'
+    }
+}
+
+if ($env:LAB_SMTP_PASSWORD) {
+    Write-Host "统一邮箱：已加载 SMTP 授权码（不显示内容），发件账号 $env:LAB_SMTP_USER"
+} else {
+    Write-Warning '尚未加载 SMTP 授权码；扫码流程可运行，但下机后自动邮件发送会失败。请在主程序包运行 scripts\configure-mail.ps1。'
 }
 
 Set-Location $root

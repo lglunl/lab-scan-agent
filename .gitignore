@@ -9,3 +9,6 @@ __pycache__/
 .venv/
 venv/
 runtime/
+
+# 本机/实验室统一 SMTP 授权码（明文，仅随可信设备包分发）
+mail.env
