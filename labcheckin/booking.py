@@ -84,15 +84,22 @@ class BookingClient:
         folder_path: str = "",
         send_status: str = "",
         send_error: str = "",
+        has_data: bool | None = None,
+        file_count: int | None = None,
+        bytes_total: int | None = None,
     ) -> None:
         if not self.cfg.instrument_id:
             raise BookingUnavailable("未配置本机对应的仪器")
-        body: dict[str, str] = {"bookingId": booking_id}
+        body: dict = {"bookingId": booking_id}
         if folder_path:
             body["folderPath"] = folder_path
         if send_status:
             body["sendStatus"] = send_status
             body["sendError"] = send_error
+        if has_data is not None:
+            body["hasData"] = bool(has_data)
+            body["fileCount"] = int(file_count or 0)
+            body["bytes"] = int(bytes_total or 0)
         response = self._request(
             f"/api/instruments/{quote(self.cfg.instrument_id)}/desk",
             body=body,

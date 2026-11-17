@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+import shutil
 import threading
 import time
 from datetime import datetime
@@ -112,6 +113,8 @@ class Agent:
             # A stale folderPath returned by the reservation service must not suppress
             # creation of the folder on *this* instrument's computer.
             self._ensure_folder(booking)
+            self._copy_from_source(booking)
+            self._report_data_ready(booking)
         elif phase == "need-send":
             # Local mapping wins if the reservation server did not persist its path.
             local_folder = self.store.folder_for_booking(booking_id)
@@ -186,6 +189,89 @@ class Agent:
         if path.parent != root:
             return None
         return folder
+
+    def _session_folder(self, booking: dict) -> Path | None:
+        booking_id = str(booking.get("id") or "")
+        local = self.store.folder_for_booking(booking_id) if booking_id else None
+        return self._safe_folder(local or str(booking.get("folderPath") or ""))
+
+    def _copy_from_source(self, booking: dict) -> None:
+        """把实验软件默认目录里、本次上机之后稳定写入的文件复制到桌面本次文件夹。"""
+        source = self.cfg.source_data_dir
+        if source is None:
+            return
+        try:
+            if source.is_symlink() or not source.is_dir():
+                return
+        except OSError:
+            return
+        folder = self._session_folder(booking)
+        if folder is None:
+            return
+        raw = str(booking.get("checkInAt") or "")
+        try:
+            cutoff = datetime.fromisoformat(raw).timestamp()
+        except ValueError:
+            cutoff = time.time() - 12 * 3600
+        stable = self.cfg.file_stable_seconds
+        now = time.time()
+        copied = 0
+        try:
+            for src in sorted(source.rglob("*")):
+                if src.is_symlink() or not src.is_file():
+                    continue
+                try:
+                    info = src.stat()
+                except OSError:
+                    continue
+                if info.st_mtime < cutoff:
+                    continue
+                if now - info.st_mtime < stable:
+                    continue
+                rel = src.relative_to(source)
+                dest = folder / rel
+                if dest.exists():
+                    try:
+                        if dest.stat().st_size == info.st_size:
+                            continue
+                    except OSError:
+                        continue
+                    dest = dest.with_name(f"{dest.stem}_{int(now)}{dest.suffix}")
+                try:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dest)
+                    copied += 1
+                except OSError as exc:
+                    log.warning("复制实验文件失败 %s -> %s: %s", src, dest, exc)
+        except OSError as exc:
+            log.warning("扫描默认保存目录失败 %s: %s", source, exc)
+            return
+        if copied:
+            log.info("已从默认保存目录复制 %s 个文件到 %s", copied, folder)
+
+    def _report_data_ready(self, booking: dict) -> None:
+        booking_id = str(booking.get("id") or "")
+        folder = self._session_folder(booking)
+        if not booking_id or folder is None:
+            return
+        try:
+            files = collect_files(folder)
+            size = total_bytes(files)
+        except OSError as exc:
+            log.warning("检查本次数据文件夹失败 %s: %s", folder, exc)
+            return
+        try:
+            self.booking.report_desk(
+                booking_id,
+                has_data=bool(files),
+                file_count=len(files),
+                bytes_total=size,
+            )
+        except BookingUnavailable:
+            log.warning("回报数据就绪状态失败，稍后重试：%s", booking_id)
+            return
+        if files:
+            log.debug("数据已就绪 booking=%s files=%s bytes=%s", booking_id, len(files), size)
 
     @staticmethod
     def _signature(folder: Path, files: list[Path]) -> str:

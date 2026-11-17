@@ -21,5 +21,6 @@
     "smtp_timeout":  30,
     "file_stable_seconds":  10,
     "file_wait_seconds":  120,
-    "email_max_attempts":  3
+    "email_max_attempts":  3,
+    "source_data_dir":  ""
 }

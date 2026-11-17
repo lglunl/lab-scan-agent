@@ -38,6 +38,7 @@ class Config:
     booking_api_token: str
     instrument_id: str
     require_booking: bool
+    source_data_dir: Path | None
     demo_seed_on_checkin: bool = True
 
     @property
@@ -91,6 +92,8 @@ def load_config() -> Config:
     desk = desktop()
     data_root = Path(raw["data_root"]) if raw.get("data_root") else desk / "Experiment Data"
     qr_path = Path(raw["qr_path"]) if raw.get("qr_path") else desk / "上机二维码.png"
+    source_raw = str(raw.get("source_data_dir") or "").strip()
+    source_data_dir = Path(source_raw) if source_raw else None
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     return Config(
         device_id=str(raw.get("device_id") or "local-demo"),
@@ -121,6 +124,7 @@ def load_config() -> Config:
         booking_api_token=os.environ.get("LAB_API_TOKEN") or str(raw.get("booking_api_token") or "").strip(),
         instrument_id=str(raw.get("instrument_id") or "").strip(),
         require_booking=bool(raw.get("require_booking", False)),
+        source_data_dir=source_data_dir,
         demo_seed_on_checkin=bool(raw.get("demo_seed_on_checkin", True)),
     )
 

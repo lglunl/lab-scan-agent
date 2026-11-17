@@ -41,11 +41,11 @@ function Save-DeviceSetup([string]$ConfigPath) {
     $form.MaximizeBox = $false
     $form.MinimizeBox = $false
     $form.TopMost = $true
-    $form.ClientSize = New-Object System.Drawing.Size(440, 250)
+    $form.ClientSize = New-Object System.Drawing.Size(440, 330)
     $form.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 10)
 
     $hint = New-Object System.Windows.Forms.Label
-    $hint.Text = "填写这台仪器在预约系统里的设备 ID，以及预约系统的密钥。两项都要填，保存后才会启动。"
+    $hint.Text = "填写设备 ID 和密钥。实验软件默认保存目录可以留空；填了之后，上机后会把那里的新文件复制到桌面本次文件夹。"
     $hint.Location = New-Object System.Drawing.Point(20, 16)
     $hint.Size = New-Object System.Drawing.Size(400, 44)
 
@@ -67,13 +67,22 @@ function Save-DeviceSetup([string]$ConfigPath) {
     $tokenBox.Size = New-Object System.Drawing.Size(400, 28)
     $tokenBox.Text = $token
 
+    $sourceLabel = New-Object System.Windows.Forms.Label
+    $sourceLabel.Text = '实验软件默认保存目录（可留空）'
+    $sourceLabel.Location = New-Object System.Drawing.Point(20, 188)
+    $sourceLabel.AutoSize = $true
+    $sourceBox = New-Object System.Windows.Forms.TextBox
+    $sourceBox.Location = New-Object System.Drawing.Point(20, 212)
+    $sourceBox.Size = New-Object System.Drawing.Size(400, 28)
+    $sourceBox.Text = Get-ConfigString $text 'source_data_dir'
+
     $ok = New-Object System.Windows.Forms.Button
     $ok.Text = '保存并启动'
-    $ok.Location = New-Object System.Drawing.Point(210, 200)
+    $ok.Location = New-Object System.Drawing.Point(210, 280)
     $ok.Size = New-Object System.Drawing.Size(100, 30)
     $cancel = New-Object System.Windows.Forms.Button
     $cancel.Text = '取消'
-    $cancel.Location = New-Object System.Drawing.Point(320, 200)
+    $cancel.Location = New-Object System.Drawing.Point(320, 280)
     $cancel.Size = New-Object System.Drawing.Size(100, 30)
     $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
     $ok.Add_Click({
@@ -86,7 +95,7 @@ function Save-DeviceSetup([string]$ConfigPath) {
     }.GetNewClosure())
     $form.AcceptButton = $ok
     $form.CancelButton = $cancel
-    $form.Controls.AddRange(@($hint, $idLabel, $idBox, $tokenLabel, $tokenBox, $ok, $cancel))
+    $form.Controls.AddRange(@($hint, $idLabel, $idBox, $tokenLabel, $tokenBox, $sourceLabel, $sourceBox, $ok, $cancel))
 
     $result = $form.ShowDialog()
     if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
@@ -94,10 +103,11 @@ function Save-DeviceSetup([string]$ConfigPath) {
     }
     $text = Set-ConfigString $text 'instrument_id' $idBox.Text.Trim()
     $text = Set-ConfigString $text 'booking_api_token' $tokenBox.Text.Trim()
+    $text = Set-ConfigString $text 'source_data_dir' $sourceBox.Text.Trim()
     [System.IO.File]::WriteAllText($ConfigPath, $text, $utf8)
     New-Item -ItemType Directory -Force -Path (Split-Path $marker) | Out-Null
     Set-Content -Path $marker -Value (Get-Date -Format o) -Encoding ascii
-    Write-Host '设备 ID 和密钥已写入 config.json'
+    Write-Host '设备 ID、密钥和默认保存目录已写入 config.json'
 }
 
 $configPath = Join-Path $root 'config.json'
