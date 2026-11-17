@@ -93,7 +93,10 @@ class BookingClient:
         if send_status:
             body["sendStatus"] = send_status
             body["sendError"] = send_error
-        self._request(
+        response = self._request(
             f"/api/instruments/{quote(self.cfg.instrument_id)}/desk",
             body=body,
         )
+        # HTTP 200 但业务层明确拒绝时，也不能标记为已回报。
+        if response.get("ok") is False or response.get("success") is False:
+            raise BookingUnavailable(str(response.get("message") or "预约服务器拒绝了状态更新"))

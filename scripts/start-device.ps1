@@ -154,6 +154,24 @@ if ($needInstall) {
     Set-Content -Path $marker -Value (Get-Date -Format o) -Encoding ascii
 }
 
+# 自动读取当前 Windows 用户通过 configure-mail.ps1 加密保存的 SMTP 授权码。
+# 环境变量优先；不会把授权码写入 config.json 或命令行参数。
+$protectedSmtp = Join-Path $root 'data\.smtp-password.dpapi'
+if (-not $env:LAB_SMTP_PASSWORD -and (Test-Path $protectedSmtp)) {
+    try {
+        $encryptedText = (Get-Content -Raw -Path $protectedSmtp).Trim()
+        $secureString = ConvertTo-SecureString -String $encryptedText
+        $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureString)
+        try {
+            $env:LAB_SMTP_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+        } finally {
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+        }
+    } catch {
+        throw '不能解密邮箱授权码：请用配置邮箱时相同的 Windows 用户运行，或重新执行 scripts/configure-mail.ps1'
+    }
+}
+
 Set-Location $root
 $appPath = Join-Path $runtime 'Lib\site-packages\labcheckin-app.pth'
 Set-Content -Path $appPath -Value $root -Encoding ascii
